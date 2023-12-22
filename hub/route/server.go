@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -151,8 +152,12 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 	return r
 }
 
+var httpServerLock sync.Mutex
+
 func start(cfg *Config) {
 	// first stop existing server
+	httpServerLock.Lock()
+	defer httpServerLock.Unlock()
 	if httpServer != nil {
 		_ = httpServer.Close()
 		httpServer = nil
