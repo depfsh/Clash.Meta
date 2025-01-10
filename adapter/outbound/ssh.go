@@ -77,7 +77,6 @@ func (s *sshClient) connect(ctx context.Context, cDialer C.Dialer, addr string) 
 	if err != nil {
 		return nil, err
 	}
-	N.TCPKeepAlive(c)
 
 	defer func(c net.Conn) {
 		safeConnClose(c, err)
@@ -120,6 +119,13 @@ func (s *sshClient) Close() error {
 
 func closeSsh(s *Ssh) {
 	_ = s.client.Close()
+}
+
+// ProxyInfo implements C.ProxyAdapter
+func (s *Ssh) ProxyInfo() C.ProxyInfo {
+	info := s.Base.ProxyInfo()
+	info.DialerProxy = s.option.DialerProxy
+	return info
 }
 
 func NewSsh(option SshOption) (*Ssh, error) {

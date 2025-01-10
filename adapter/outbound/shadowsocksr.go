@@ -80,7 +80,6 @@ func (ssr *ShadowSocksR) DialContextWithDialer(ctx context.Context, dialer C.Dia
 	if err != nil {
 		return nil, fmt.Errorf("%s connect error: %w", ssr.addr, err)
 	}
-	N.TCPKeepAlive(c)
 
 	defer func(c net.Conn) {
 		safeConnClose(c, err)
@@ -121,6 +120,13 @@ func (ssr *ShadowSocksR) ListenPacketWithDialer(ctx context.Context, dialer C.Di
 // SupportWithDialer implements C.ProxyAdapter
 func (ssr *ShadowSocksR) SupportWithDialer() C.NetWork {
 	return C.ALLNet
+}
+
+// ProxyInfo implements C.ProxyAdapter
+func (ssr *ShadowSocksR) ProxyInfo() C.ProxyInfo {
+	info := ssr.Base.ProxyInfo()
+	info.DialerProxy = ssr.option.DialerProxy
+	return info
 }
 
 func NewShadowSocksR(option ShadowSocksROption) (*ShadowSocksR, error) {
