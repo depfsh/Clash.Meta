@@ -1,0 +1,47 @@
+name: Sync Upstream Repository
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # 每天凌晨4点（UTC）
+  workflow_dispatch:       # 也支持手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          ref: FlClash
+          persist-credentials: true
+
+      - name: Set up Git configuration
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/chen08209/Clash.Meta.git || echo "Upstream remote already exists"
+
+      - name: Fetch upstream repository
+        run: |
+          git fetch upstream || { echo "Fetch 失败"; exit 1; }
+
+      - name: Merge upstream into FlClash
+        run: |
+          git checkout FlClash || { echo "切换到 FlClash 分支失败"; exit 1; }
+          LOCAL=$(git rev-parse HEAD)
+          UPSTREAM=$(git rev-parse upstream/FlClash)
+          echo "Local FlClash hash: $LOCAL"
+          echo "Upstream FlClash hash: $UPSTREAM"
+          if [ "$LOCAL" = "$UPSTREAM" ]; then
+            echo "当前 FlClash 分支已经是最新，不需要合并。"
+          else
+            echo "合并 upstream/FlClash..."
+            git merge upstream/FlClash --no-edit --allow-unrelated-histories || { echo "合并失败"; exit 1; }
+          fi
+
+      - name: Push changes to origin
+        run: |
+          git push origin FlClash || { echo "推送失败"; exit 1; }
