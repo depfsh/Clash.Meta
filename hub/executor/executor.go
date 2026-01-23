@@ -269,6 +269,7 @@ func updateDNS(c *config.DNS, generalIPv6 bool) {
 		FakeIPPool:    c.FakeIPPool,
 		FakeIPPool6:   c.FakeIPPool6,
 		FakeIPSkipper: c.FakeIPSkipper,
+		FakeIPTTL:     c.FakeIPTTL,
 		UseHosts:      c.UseHosts,
 	})
 
@@ -426,6 +427,9 @@ func updateGeneral(general *config.General, logging bool) {
 	mihomoHttp.SetUA(general.GlobalUA)
 	resource.SetETag(general.ETagSupport)
 
+	if general.GlobalClientFingerprint != "" {
+		log.Warnln("The `global-client-fingerprint` configuration is deprecated, please set `client-fingerprint` directly on the proxy instead")
+	}
 	tlsC.SetGlobalFingerprint(general.GlobalClientFingerprint)
 }
 
@@ -452,12 +456,7 @@ func patchSelectGroup(proxies map[string]C.Proxy) {
 		return
 	}
 
-	for name, proxy := range proxies {
-		outbound, ok := proxy.(C.Proxy)
-		if !ok {
-			continue
-		}
-
+	for name, outbound := range proxies {
 		selector, ok := outbound.Adapter().(outboundgroup.SelectAble)
 		if !ok {
 			continue
