@@ -380,7 +380,7 @@ func traffic(w http.ResponseWriter, r *http.Request) {
 	for range tick.C {
 		buf.Reset()
 		up, down := t.Now()
-		upTotal, downTotal := t.Total()
+		upTotal, downTotal := t.Total(false)
 		if err := json.NewEncoder(buf).Encode(Traffic{
 			Up:        up,
 			Down:      down,
