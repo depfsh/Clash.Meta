@@ -54,6 +54,7 @@ func (t *PoolClient) ListenPacket(ctx context.Context, metadata *C.Metadata) (ne
 // poolDialHelper is a helper for dialFn
 // using a standalone struct to let finalizer working
 type poolDialHelper struct {
+	mu         sync.Mutex
 	dialFn     DialFunc
 	dialResult atomic.Pointer[dialResult]
 }
@@ -64,6 +65,15 @@ type dialResult struct {
 }
 
 func (t *poolDialHelper) dial(ctx context.Context) (transport *quic.Transport, addr net.Addr, err error) {
+	// fast path: lock-free check
+	if dr := t.dialResult.Load(); dr != nil {
+		return dr.transport, dr.addr, nil
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// double-check after acquiring lock
 	if dr := t.dialResult.Load(); dr != nil {
 		return dr.transport, dr.addr, nil
 	}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	C "github.com/metacubex/mihomo/constant"
@@ -18,7 +19,8 @@ import (
 type Listener struct {
 	listener  net.Listener
 	addr      string
-	closed    bool
+	closed    atomic.Bool
+	closeCh   chan struct{}
 	protoConf sudoku.ProtocolConfig
 	tunnelSrv *sudoku.HTTPMaskTunnelServer
 	handler   *sing.ListenerHandler
@@ -39,7 +41,9 @@ func (l *Listener) Address() string {
 
 // Close implements C.Listener
 func (l *Listener) Close() error {
-	l.closed = true
+	if l.closed.CompareAndSwap(false, true) {
+		close(l.closeCh)
+	}
 	if l.listener != nil {
 		return l.listener.Close()
 	}
@@ -86,17 +90,26 @@ func (l *Listener) handleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 		}
 		defer mux.Close()
 
-		for {
-			stream, target, err := mux.AcceptTCP()
-			if err != nil {
-				return
+		acceptDone := make(chan struct{})
+		go func() {
+			defer close(acceptDone)
+			for {
+				stream, target, err := mux.AcceptTCP()
+				if err != nil {
+					return
+				}
+				targetAddr := socks5.ParseAddr(target)
+				if targetAddr == nil {
+					_ = stream.Close()
+					continue
+				}
+				go l.handler.HandleSocket(targetAddr, stream, additions...)
 			}
-			targetAddr := socks5.ParseAddr(target)
-			if targetAddr == nil {
-				_ = stream.Close()
-				continue
-			}
-			go l.handler.HandleSocket(targetAddr, stream, additions...)
+		}()
+
+		select {
+		case <-acceptDone:
+		case <-l.closeCh:
 		}
 	default:
 		targetAddr := socks5.ParseAddr(session.Target)
@@ -243,6 +256,7 @@ func New(config LC.SudokuServer, tunnel C.Tunnel, additions ...inbound.Addition)
 	sl := &Listener{
 		listener:  l,
 		addr:      config.Listen,
+		closeCh:   make(chan struct{}),
 		protoConf: protoConf,
 		handler:   h,
 	}
@@ -252,7 +266,7 @@ func New(config LC.SudokuServer, tunnel C.Tunnel, additions ...inbound.Addition)
 		for {
 			c, err := l.Accept()
 			if err != nil {
-				if sl.closed {
+				if sl.closed.Load() {
 					break
 				}
 				continue

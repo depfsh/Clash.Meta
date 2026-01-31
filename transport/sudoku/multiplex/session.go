@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+var errReadDeadline = &deadlineError{}
+
+type deadlineError struct{}
+
+func (e *deadlineError) Error() string   { return "i/o timeout" }
+func (e *deadlineError) Timeout() bool   { return true }
+func (e *deadlineError) Temporary() bool { return true }
+
 const (
 	frameOpen  byte = 0x01
 	frameData  byte = 0x02
@@ -18,9 +26,10 @@ const (
 )
 
 const (
-	headerSize     = 1 + 4 + 4
-	maxFrameSize   = 256 * 1024
-	maxDataPayload = 32 * 1024
+	headerSize          = 1 + 4 + 4
+	maxFrameSize        = 256 * 1024
+	maxDataPayload      = 32 * 1024
+	maxStreamQueueSize  = 256
 )
 
 type acceptEvent struct {
@@ -269,14 +278,16 @@ func (s *Session) readLoop() {
 			}
 			st := newStream(s, streamID)
 			s.registerStream(st)
-			go func() {
-				select {
-				case s.acceptCh <- acceptEvent{stream: st, payload: payload}:
-				case <-s.closed:
-					st.closeNoSend(io.ErrClosedPipe)
-					s.removeStream(streamID)
-				}
-			}()
+			select {
+			case s.acceptCh <- acceptEvent{stream: st, payload: payload}:
+			case <-s.closed:
+				st.closeNoSend(io.ErrClosedPipe)
+				s.removeStream(streamID)
+			default:
+				s.sendReset(streamID, "accept queue full")
+				st.closeNoSend(io.ErrClosedPipe)
+				s.removeStream(streamID)
+			}
 
 		case frameData:
 			st := s.getStream(streamID)
@@ -355,12 +366,14 @@ type stream struct {
 	session *Session
 	id      uint32
 
-	mu       sync.Mutex
-	cond     *sync.Cond
-	closed   bool
-	closeErr error
-	readBuf  []byte
-	queue    [][]byte
+	mu           sync.Mutex
+	cond         *sync.Cond
+	closed       bool
+	closeErr     error
+	readBuf      []byte
+	queue        [][]byte
+	readDeadline time.Time
+	readTimer    *time.Timer
 
 	localAddr  net.Addr
 	remoteAddr net.Addr
@@ -381,6 +394,11 @@ func (c *stream) enqueue(payload []byte) {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
+		return
+	}
+	if len(c.queue) >= maxStreamQueueSize {
+		c.mu.Unlock()
+		c.Close()
 		return
 	}
 	c.queue = append(c.queue, payload)
@@ -422,6 +440,9 @@ func (c *stream) Read(p []byte) (int, error) {
 	defer c.mu.Unlock()
 
 	for len(c.readBuf) == 0 && len(c.queue) == 0 && !c.closed {
+		if !c.readDeadline.IsZero() && !time.Now().Before(c.readDeadline) {
+			return 0, errReadDeadline
+		}
 		c.cond.Wait()
 	}
 	if len(c.readBuf) == 0 && len(c.queue) > 0 {
@@ -499,6 +520,31 @@ func (c *stream) SetDeadline(t time.Time) error {
 	_ = c.SetWriteDeadline(t)
 	return nil
 }
-func (c *stream) SetReadDeadline(time.Time) error  { return nil }
+func (c *stream) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.readDeadline = t
+
+	if c.readTimer != nil {
+		c.readTimer.Stop()
+		c.readTimer = nil
+	}
+
+	if t.IsZero() {
+		return nil
+	}
+
+	d := time.Until(t)
+	if d <= 0 {
+		c.cond.Broadcast()
+		return nil
+	}
+
+	c.readTimer = time.AfterFunc(d, func() {
+		c.cond.Broadcast()
+	})
+	return nil
+}
 func (c *stream) SetWriteDeadline(time.Time) error { return nil }
 

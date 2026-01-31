@@ -127,7 +127,7 @@ func (sc *Conn) Write(p []byte) (n int, err error) {
 	padLen := len(pads)
 
 	for _, b := range p {
-		if sc.rng.Float32() < sc.paddingRate {
+		if padLen > 0 && sc.rng.Float32() < sc.paddingRate {
 			out = append(out, pads[sc.rng.Intn(padLen)])
 		}
 
@@ -136,14 +136,14 @@ func (sc *Conn) Write(p []byte) (n int, err error) {
 
 		perm := perm4[sc.rng.Intn(len(perm4))]
 		for _, idx := range perm {
-			if sc.rng.Float32() < sc.paddingRate {
+			if padLen > 0 && sc.rng.Float32() < sc.paddingRate {
 				out = append(out, pads[sc.rng.Intn(padLen)])
 			}
 			out = append(out, puzzle[idx])
 		}
 	}
 
-	if sc.rng.Float32() < sc.paddingRate {
+	if padLen > 0 && sc.rng.Float32() < sc.paddingRate {
 		out = append(out, pads[sc.rng.Intn(padLen)])
 	}
 

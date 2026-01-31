@@ -45,8 +45,11 @@ func (ps *Process) Match(metadata *C.Metadata, helper C.RuleMatchHelper) (bool, 
 	case C.ProcessNameRegex, C.ProcessPathRegex:
 		match, _ := ps.regexp.MatchString(target)
 		return match, ps.adapter
-	case C.ProcessNameWildcard, C.ProcessPathWildcard:
+	case C.ProcessNameWildcard:
 		return wildcard.Match(strings.ToLower(ps.pattern), strings.ToLower(target)), ps.adapter
+	case C.ProcessPathWildcard:
+		normalizedTarget := strings.ReplaceAll(strings.ToLower(target), "\\", "/")
+		return wildcard.Match(strings.ToLower(ps.pattern), normalizedTarget), ps.adapter
 	default:
 		return strings.EqualFold(target, ps.pattern), ps.adapter
 	}

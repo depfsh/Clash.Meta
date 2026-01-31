@@ -926,6 +926,9 @@ func parseProxies(cfg *RawConfig) (proxies map[string]C.Proxy, providersMap map[
 		if err != nil {
 			return nil, nil, fmt.Errorf("proxy group[%d]: %w", idx, err)
 		}
+		if group == nil {
+			continue
+		}
 
 		groupName := group.Name()
 		if _, exist := proxies[groupName]; exist {
