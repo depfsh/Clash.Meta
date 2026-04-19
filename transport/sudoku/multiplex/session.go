@@ -182,15 +182,9 @@ func (s *Session) sendFrame(frameType byte, streamID uint32, payload []byte) err
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	if err := writeFull(s.conn, header[:]); err != nil {
+	if err := writeAllChunks(s.conn, header[:], payload); err != nil {
 		s.closeWithError(err)
 		return err
-	}
-	if len(payload) > 0 {
-		if err := writeFull(s.conn, payload); err != nil {
-			s.closeWithError(err)
-			return err
-		}
 	}
 	return nil
 }
@@ -326,17 +320,6 @@ func (s *Session) readLoop() {
 	}
 }
 
-func writeFull(w io.Writer, b []byte) error {
-	for len(b) > 0 {
-		n, err := w.Write(b)
-		if err != nil {
-			return err
-		}
-		b = b[n:]
-	}
-	return nil
-}
-
 func trimASCII(b []byte) string {
 	i := 0
 	j := len(b)
@@ -396,12 +379,11 @@ func (c *stream) enqueue(payload []byte) {
 		c.mu.Unlock()
 		return
 	}
-	if len(c.queue) >= maxStreamQueueSize {
-		c.mu.Unlock()
-		c.Close()
-		return
+	if len(c.readBuf) == 0 && len(c.queue) == 0 {
+		c.readBuf = payload
+	} else {
+		c.queue = append(c.queue, payload)
 	}
-	c.queue = append(c.queue, payload)
 	c.cond.Signal()
 	c.mu.Unlock()
 }
@@ -512,6 +494,9 @@ func (c *stream) Close() error {
 	return nil
 }
 
+func (c *stream) CloseWrite() error { return c.Close() }
+func (c *stream) CloseRead() error  { return c.Close() }
+
 func (c *stream) LocalAddr() net.Addr  { return c.localAddr }
 func (c *stream) RemoteAddr() net.Addr { return c.remoteAddr }
 
@@ -547,4 +532,3 @@ func (c *stream) SetReadDeadline(t time.Time) error {
 	return nil
 }
 func (c *stream) SetWriteDeadline(time.Time) error { return nil }
-
