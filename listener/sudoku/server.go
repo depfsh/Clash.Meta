@@ -2,6 +2,7 @@ package sudoku
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -115,6 +116,7 @@ func (l *Listener) handleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 		closeConns()
 		return
 	}
+	cConn = wrapSessionConn(cConn)
 
 	session, err := sudoku.ReadServerSession(cConn, meta)
 	if err != nil {
@@ -168,6 +170,12 @@ func (l *Listener) handleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbou
 		l.handler.HandleSocket(targetAddr, session.Conn, additions...)
 		//tunnel.HandleTCPConn(inbound.NewSocket(targetAddr, session.Conn, C.SUDOKU, additions...))
 	}
+}
+
+func wrapSessionConn(conn net.Conn) net.Conn {
+	// Sudoku uses framed reads. Keep mihomo's asynchronous peek deadlines from
+	// interrupting a partially consumed frame and desynchronizing the session.
+	return N.NewDeadlineConn(conn)
 }
 
 func (l *Listener) handleUoTSession(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
@@ -241,7 +249,7 @@ func relayToFallback(wrapper net.Conn, rawConn net.Conn, fallback net.Conn) {
 	N.Relay(rawConn, fallback)
 }
 
-func New(config LC.SudokuServer, tunnel C.Tunnel, additions ...inbound.Addition) (*Listener, error) {
+func New(config LC.SudokuServer, lc C.InboundListenConfig, tunnel C.Tunnel, additions ...inbound.Addition) (*Listener, error) {
 	if len(additions) == 0 {
 		additions = []inbound.Addition{
 			inbound.WithInName("DEFAULT-SUDOKU"),
@@ -260,7 +268,7 @@ func New(config LC.SudokuServer, tunnel C.Tunnel, additions ...inbound.Addition)
 		return nil, err
 	}
 
-	l, err := inbound.Listen("tcp", config.Listen)
+	l, err := lc.Listen(context.Background(), "tcp", config.Listen)
 	if err != nil {
 		return nil, err
 	}
