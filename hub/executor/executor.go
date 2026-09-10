@@ -102,8 +102,9 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	updateSniffer(cfg.Sniffer)
 	updateHosts(cfg.Hosts)
 	updateGeneral(cfg.General, true)
-	updateNTP(cfg.NTP)
 	updateDNS(cfg.DNS, cfg.General.IPv6)
+	updateNTP(cfg.NTP) // initialize NTP after DNS because an NTP server may be a hostname.
+	// FlClash 自己管 listener 与 tun（Dart 侧 setup），这里不能再由内核接管。
 	//updateListeners(cfg.General, cfg.Listeners, force)
 	//updateTun(cfg.General) // tun should not care "force"
 	updateIPTables(cfg)
